@@ -1,0 +1,58 @@
+name: 'Deploy'
+description: 'Deploy an artifact using maven '
+inputs:
+  java-version:
+    description: 'java version to use (eg 17, 21, 25)'
+    required: true
+    default: '25'
+  github-token:
+    description: 'github token used to push the artifact to the repository'
+    required: true
+    
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      
+    - name: Set up JDK
+      uses: actions/setup-java@v5.1.0
+      with:
+        java-version: "$INPUT_JAVA_VERSION"
+        distribution: "temurin"
+        cache: maven
+      env:
+        INPUT_JAVA_VERSION: ${{ inputs.java-version }}
+
+    - name: set version
+      id: set_version
+      env: 
+        GITHUB_TOKEN: ${{ inputs.github-token}} # GITHUB_TOKEN is the default env for the password of the github server in settings.xml
+      run: |
+        #set version in pom.xml
+        version=$(mvn  -B -q exec:exec -Dexec.executable=echo -Dexec.args='${project.version}' | sed 's/\.[^.]*$//')
+        date=$(date '+%Y%m%d')
+        buildnr=${{github.run_number}}
+        newversion="$version.$date$buildnr"
+        echo "Setting version to $newversion"
+        mvn -B -q versions:set -DnewVersion="$newversion"
+        echo "newVersion=$newversion" >> "$GITHUB_OUTPUT"
+        # cat pom.xml
+
+    - name: mvn build and deploy
+      env: 
+        GITHUB_TOKEN: ${{ inputs.github-token}} # GITHUB_TOKEN is the default env for the password of the github server in settings.xml
+      run: mvn -B -q clean verify deploy
+
+    - name: Tag
+      env: 
+        GITHUB_TOKEN: ${{ inputs.github-token}} # GITHUB_TOKEN is the default env for the password of the github server in settings.xml
+      run: |
+        #set git tag
+        remote=$(git remote)
+        newversion=${{ steps.set_version.outputs.newversion}}
+        git tag "$newversion"
+        git push "$remote" "$newversion"
+        #reset version in pom.xml
+        mvn versions:revert
+

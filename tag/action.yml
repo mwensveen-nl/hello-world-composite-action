@@ -1,0 +1,34 @@
+name: Tag
+description: 'Set a git tag after a successful build a project using maven'
+inputs:
+  java-version:
+    description: 'java version to use (eg 17, 21, 25)'
+    required: true
+    default: '25'
+  github-token:
+    description: 'github token used to download dependencies from the github repository'
+    required: false
+    default: 'none'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build with maven
+      uses: mwensveen-nl/github-action/build/@main
+      with:
+        java-version: ${{ inputs.java-version }}
+        github-token: ${{ inputs.github-token }}
+
+    - name: Git Tag
+      env: 
+         GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        version=$(mvn exec:exec -Dexec.executable=echo -Dexec.args='${project.version}' --quiet -N | sed 's/-SNAPSHOT//')
+        date=$(date '+%Y%m%d')
+        buildnr=${{github.run_number}}
+        newversion="$version.$date$buildnr"
+        echo "Tagging version  $newversion"
+        remote=$(git remote)
+        git tag "$newversion"
+        git push "$remote" "$newversion"
+      shell: bash
